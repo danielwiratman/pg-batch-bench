@@ -1,0 +1,82 @@
+#cloud-config
+package_update: true
+
+users:
+  - name: ubuntu
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    lock_passwd: false
+    ssh_authorized_keys:
+      - ${public_key}
+
+runcmd:
+  - apt update
+  - apt install -y curl ca-certificates wget tar
+  - install -d /usr/share/postgresql-common/pgdg
+  - curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+  - bash -c '. /etc/os-release && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+  - apt update
+  - apt install -y postgresql-18
+  - systemctl enable --now postgresql
+  - |
+    wget https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
+    tar -xzf node_exporter-1.10.2.linux-amd64.tar.gz
+    install -m 0755 node_exporter-1.10.2.linux-amd64/node_exporter /usr/local/bin/
+    rm -rf node_exporter-1.10.2.linux-amd64*
+  - |
+    wget https://github.com/prometheus-community/postgres_exporter/releases/download/v0.18.1/postgres_exporter-0.18.1.linux-amd64.tar.gz
+    tar -xzf postgres_exporter-0.18.1.linux-amd64.tar.gz
+    install -m 0755 postgres_exporter-0.18.1.linux-amd64/postgres_exporter /usr/local/bin/
+    rm -rf postgres_exporter-0.18.1.linux-amd64*
+  - sudo -u postgres psql -c "CREATE USER postgres_exporter WITH PASSWORD 'exporter';"
+  - sudo -u postgres psql -c "GRANT pg_monitor TO postgres_exporter;"
+  - sudo -u postgres psql -c "GRANT CONNECT ON DATABASE postgres TO postgres_exporter;"
+  - systemctl daemon-reload
+  - systemctl enable --now node_exporter
+  - systemctl enable --now postgres_exporter
+
+write_files:
+  - path: /etc/systemd/system/node_exporter.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=Prometheus Node Exporter
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User=ubuntu
+      Group=ubuntu
+      Type=simple
+      ExecStart=/usr/local/bin/node_exporter
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/postgres_exporter.env
+    permissions: "0644"
+    owner: root
+    content: |
+      DATA_SOURCE_NAME=postgresql://postgres_exporter:exporter@localhost:5432/postgres
+
+  - path: /etc/systemd/system/postgres_exporter.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=Prometheus PostgreSQL Exporter
+      After=network-online.target postgresql.service
+      Wants=network-online.target postgresql.service
+
+      [Service]
+      User=ubuntu
+      Group=ubuntu
+      EnvironmentFile=/etc/postgres_exporter.env
+      ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=:9187
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
