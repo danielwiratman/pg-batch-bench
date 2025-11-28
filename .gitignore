@@ -4,3 +4,4 @@
 *.tfstate.*
 .tfvars
 app/pg-batch-bench
+compose/prometheus/prometheus.yml
