@@ -3,3 +3,4 @@
 *.tfstate
 *.tfstate.*
 .tfvars
+app/pg-batch-bench

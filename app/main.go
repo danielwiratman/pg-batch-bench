@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const (
+var (
 	updateCount = 1_000_000
 	runs        = 3
 )
@@ -27,6 +28,14 @@ type UpdateJob struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		n, err := strconv.ParseInt(os.Args[1], 10, 64)
+		if err != nil || n <= 0 {
+			log.Fatalf("invalid number: %v", os.Args[1])
+		}
+		updateCount = int(n)
+	}
+
 	_ = godotenv.Load()
 	connString := os.Getenv("PG_CONN")
 	if connString == "" {
