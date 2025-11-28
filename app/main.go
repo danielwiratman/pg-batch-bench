@@ -82,7 +82,7 @@ func makeJobs(n int) []UpdateJob {
 	j := make([]UpdateJob, n)
 	for i := range n {
 		j[i] = UpdateJob{
-			ID:    int64(rand.Intn(10000) + 1),
+			ID:    int64(i + 1),
 			State: states[rand.Intn(len(states))],
 		}
 	}
