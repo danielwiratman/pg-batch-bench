@@ -19,7 +19,7 @@ SELECT
     'INIT' AS state,
     jsonb_build_object('seq', g, 'flag', g % 5),
     now() - (g % 5000) * INTERVAL '1 second'
-FROM generate_series(1, :rows) AS g;
+FROM generate_series(1, 10000) AS g;
 
 -- Make sure planner stats are good
 VACUUM ANALYZE state_machine;

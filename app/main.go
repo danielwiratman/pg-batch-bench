@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -61,6 +62,9 @@ func main() {
 
 	run("4) Batch via TEMP TABLE (chunked insert, single update)", runs,
 		func() float64 { return benchTemp(pool) })
+
+	run("5) Batch via COPY protocol (Temp table + Join)", runs,
+		func() float64 { return benchCopy(pool) })
 }
 
 func run(name string, count int, fn func() float64) {
@@ -77,7 +81,10 @@ func run(name string, count int, fn func() float64) {
 func makeJobs(n int) []UpdateJob {
 	j := make([]UpdateJob, n)
 	for i := range n {
-		j[i] = UpdateJob{ID: int64(i + 1), State: states[rand.Intn(len(states))]}
+		j[i] = UpdateJob{
+			ID:    int64(rand.Intn(10000) + 1),
+			State: states[rand.Intn(len(states))],
+		}
 	}
 	return j
 }
@@ -244,6 +251,60 @@ func benchTemp(pool *pgxpool.Pool) float64 {
 		"UPDATE state_machine sm SET state=t.new_state, updated_at=now() FROM tmp_updates t WHERE sm.id=t.id")
 	if err != nil {
 		_ = tx.Rollback(ctx)
+		log.Fatal(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	return time.Since(start).Seconds()
+}
+
+func benchCopy(pool *pgxpool.Pool) float64 {
+	ctx := context.Background()
+	jobs := makeJobs(updateCount)
+	start := time.Now()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Create a temp table matching the structure
+	// ON COMMIT DROP ensures it vanishes at the end of the transaction
+	_, err = tx.Exec(ctx, "CREATE TEMP TABLE tmp_copy_updates(id bigint, state text) ON COMMIT DROP")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 2. Use CopyFrom to stream data efficiently
+	// We convert our slice of structs into a format pgx can consume
+	inputRows := [][]any{}
+	for _, j := range jobs {
+		inputRows = append(inputRows, []any{j.ID, j.State})
+	}
+
+	_, err = tx.CopyFrom(
+		ctx,
+		pgx.Identifier{"tmp_copy_updates"},
+		[]string{"id", "state"},
+		pgx.CopyFromRows(inputRows),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 3. Perform the bulk update with a join
+	// This usually triggers a Hash Join or Merge Join, which is extremely fast
+	_, err = tx.Exec(ctx, `
+		UPDATE state_machine sm
+		SET state = t.state, updated_at = now()
+		FROM tmp_copy_updates t
+		WHERE sm.id = t.id
+	`)
+	if err != nil {
 		log.Fatal(err)
 	}
 
