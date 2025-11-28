@@ -28,9 +28,9 @@ terraform output -raw public_ip
 
 2. Access metrics in browser:
 
-Postgres Exporter: http://<IP>:9187/metrics
+Postgres Exporter: http://droplet_ip:9187/metrics
 
-Node Exporter: http://<IP>:9100/metrics
+Node Exporter: http://droplet_ip:9100/metrics
 
 ### 3. Modify prometheus config
 
